@@ -1,0 +1,86 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: php-app
+  name: php-app
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: php-app
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: php-app
+    spec:
+      volumes:
+      - name: shared-files
+        emptyDir: {}
+      - name: nginx-config-volume
+        configMap:
+         name: nginx-config
+      containers:
+      - name: app
+        image: johnson
+        imagePullPolicy: Never
+        volumeMounts:
+          - name: shared-files
+            mountPath: /var/www/html
+          - name: nginx-config-volume
+            mountPath: /etc/nginx/nginx.conf
+            subPath: nginx.conf
+      - name: nginx
+        image: nginx:latest
+        volumeMounts:
+        - name: shared-files
+          mountPath: /var/www/html
+        - name: nginx-config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql
+spec:
+  selector:
+    matchLabels:
+      app: mysql
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: mysql
+    spec:
+      containers:
+        - name: mysql
+          image: mysql
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 3306
+          # TODO: Create a separate non-root user for database access for better security
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mysqldb-secret
+                  key: root_password
+          volumeMounts:
+            - name: mysql-initdb
+              mountPath: /docker-entrypoint-initdb.d
+            - name: www-storage
+              mountPath: "/var/lib/mysql"
+              subPath: mysql
+      volumes:
+        - name: mysql-initdb
+          configMap:
+            name: mysql-initdb-config
+# TODO: Setup a PersistentVolume and PersistentVolumeClaim so that data is persistently stored on disk
+        - name: www-storage
+          persistentVolumeClaim:
+            claimName: pv-www-claim
